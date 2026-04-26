@@ -1,6 +1,7 @@
 # engine/capture.py
 import mss
 import numpy as np
+import cv2
 
 def capture_region(region):
     """
@@ -17,3 +18,10 @@ def capture_region(region):
         img = img[:, :, :3]  # Drop the Alpha channel
         
         return img
+
+def blur_image(image_np, strength=15):
+    """
+    Applies a Gaussian blur to the captured pixels.
+    """
+    # strength must be an odd number
+    return cv2.GaussianBlur(image_np, (strength, strength), 0)

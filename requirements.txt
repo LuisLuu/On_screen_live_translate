@@ -2,3 +2,5 @@ mss
 easyocr
 googletrans
 deep-translator
+PyQt6
+keyboard
