@@ -1,71 +1,86 @@
-import keyboard
-import time
+import sys
 import threading
-import numpy as np
+import time
+import keyboard
+from PyQt6.QtWidgets import QApplication
 from ui.selector import AreaSelector
+from ui.overlay import TranslationHUD  # Ensure this file exists!
 from engine.capture import capture_region
 from engine.ocr import detect_text
 from engine.translate import translate_text
 
-# Global state
+# 1. Global State
+app = QApplication(sys.argv)
+hud = None
 is_running = False
 current_region = None
-last_image = None
 
-def live_translate_loop():
-    global is_running, current_region, last_image
+def live_engine_logic():
+    global is_running, hud, current_region
     
-    print("🛰️  Live mode started. Looking...")
+    print("🛰️  Engine is now scanning...")
     
     while is_running:
-        if current_region:
-            # 1. Capture the pixels
+        if current_region and hud:
+            # A. Capture
             img = capture_region(current_region)
             
-            # 2. Delta Check: Did the screen actually change?
-            if last_image is not None:
-                # We calculate the "Difference" between frames
-                diff = np.sum(np.abs(img.astype(np.float32) - last_image.astype(np.float32)))
-                if diff < 100000: # Threshold: pixels are basically the same
-                    time.sleep(0.5) # Wait half a second and try again
-                    continue
-            
-            last_image = img
-            
-            # 3. OCR and Translate
+            # B. OCR
             results = detect_text(img)
-            for (bbox, text, prob) in results:
-                if prob > 0.5: # Only translate confident hits
-                    trans = translate_text(text)
-                    print(f"[{time.strftime('%H:%M:%S')}] {text} -> {trans}")
             
-            # Small delay to prevent API spamming
-            time.sleep(1.0) 
+            # C. Translate & Combine
+            full_translation = ""
+            for (bbox, text, prob) in results:
+                if prob > 0.3:  # Confidence threshold
+                    translated = translate_text(text)
+                    full_translation += f"{translated} "
+            
+            # D. Update HUD
+            if full_translation.strip():
+                # Note: In a 'Right Way' app, we'd use a Signal here.
+                # For our speed-run, this works for now.
+                hud.update_text(full_translation.strip())
+            
+        time.sleep(1.0)  # Breath to prevent CPU meltdown/API ban
 
-def toggle_translator():
-    global is_running, current_region
+def on_activate():
+    global hud, is_running, current_region
     
     if not is_running:
-        # Step 1: Selection
-        print("\n🎨 Select the 'Live Zone'...")
+        print("🎯 Selection Mode Active...")
         selector = AreaSelector()
         current_region = selector.get_selection()
         
         if current_region:
             is_running = True
-            # Start the loop in a separate thread so the hotkey still works
-            threading.Thread(target=live_translate_loop, daemon=True).start()
+            # Spawn HUD
+            hud = TranslationHUD(
+                current_region['left'], 
+                current_region['top'], 
+                current_region['width'], 
+                current_region['height']
+            )
+            hud.show()
+            
+            # Kick off the logic thread
+            threading.Thread(target=live_engine_logic, daemon=True).start()
     else:
-        print("🛑 Stopping Live mode...")
+        print("🛑 Stopping Translator...")
         is_running = False
+        if hud:
+            hud.hide()
 
-def main():
-    print("🚀 On-Screen Trans is READY.")
-    print("👉 Press: Ctrl+Alt+S to Start/Stop Live Translation")
-    print("👉 Press: Esc to Kill App")
-
-    keyboard.add_hotkey('ctrl+alt+s', toggle_translator)
-    keyboard.wait('esc')
+def start_app():
+    # Register the "Tripwire"
+    keyboard.add_hotkey('ctrl+alt+s', on_activate)
+    
+    print("🚀 On-Screen Trans is RUNNING.")
+    print("1. Go to your Japanese tab.")
+    print("2. Press Ctrl + Alt + S to select area.")
+    print("3. Press Ctrl + Alt + S again to stop.")
+    
+    # This keeps the PyQt window system alive
+    sys.exit(app.exec())
 
 if __name__ == "__main__":
-    main()
+    start_app()
